@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Lambda module. Creates Lambda function with IAM role, CloudWatch logs, and optional VPC config.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Function
+        Parameters:
+          - FunctionName
+          - Runtime
+          - Handler
+          - MemorySize
+          - Timeout
+          - S3Bucket
+          - S3Key
+      - Label:
+          default: Network (optional)
+        Parameters:
+          - VpcSubnetIds
+          - VpcSecurityGroupIds
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  FunctionName:
+    Type: String
+    Description: Lambda function name
+
+  Runtime:
+    Type: String
+    Default: python3.12
+    AllowedValues:
+      - python3.12
+      - python3.11
+      - nodejs20.x
+      - nodejs18.x
+      - java21
+      - java17
+
+  Handler:
+    Type: String
+    Default: index.handler
+
+  MemorySize:
+    Type: Number
+    Default: 256
+    MinValue: 128
+    MaxValue: 10240
+
+  Timeout:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+
+  S3Bucket:
+    Type: String
+    Description: S3 bucket containing deployment package
+
+  S3Key:
+    Type: String
+    Description: S3 key for deployment package (.zip)
+
+  VpcSubnetIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional VPC subnet IDs (comma-separated)
+
+  VpcSecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Optional VPC security group IDs
+
+  ReservedConcurrentExecutions:
+    Type: Number
+    Default: -1
+    Description: Reserved concurrency (-1 = unreserved account pool)
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  UseVpc: !Not [!Equals [!Join ['', !Ref VpcSubnetIds], '']]
+  HasConcurrencyLimit: !Not [!Equals [!Ref ReservedConcurrentExecutions, -1]]
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${FunctionName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !If
+          - UseVpc
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Sub '${FunctionName}-lambda-role'
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${FunctionName}'
+      RetentionInDays: 30
+
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: LogGroup
+    Properties:
+      FunctionName: !Ref FunctionName
+      Runtime: !Ref Runtime
+      Handler: !Ref Handler
+      Role: !GetAtt LambdaRole.Arn
+      Code:
+        S3Bucket: !Ref S3Bucket
+        S3Key: !Ref S3Key
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      ReservedConcurrentExecutions: !If
+        - HasConcurrencyLimit
+        - !Ref ReservedConcurrentExecutions
+        - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          PROJECT: !Ref Project
+      VpcConfig: !If
+        - UseVpc
+        - SecurityGroupIds: !Ref VpcSecurityGroupIds
+          SubnetIds: !Ref VpcSubnetIds
+        - !Ref AWS::NoValue
+      TracingConfig:
+        Mode: Active
+      Tags:
+        - Key: Name
+          Value: !Ref FunctionName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Module
+          Value: lambda
+
+Outputs:
+  FunctionName:
+    Description: Lambda function name
+    Value: !Ref Function
+
+  FunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt Function.Arn
+
+  RoleArn:
+    Description: Lambda execution role ARN
+    Value: !GetAtt LambdaRole.Arn
+
+  LogGroupName:
+    Description: CloudWatch log group
+    Value: !Ref LogGroup

@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Data stack — RDS and S3 resources.
+  RDS is defined inline (not nested) so Secrets Manager dynamic references work.
+  Requires network stack exports.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Deployment
+        Parameters:
+          - TemplateBucket
+          - TemplateVersion
+      - Label:
+          default: RDS
+        Parameters:
+          - DbIdentifier
+          - DbInstanceClass
+          - EngineVersion
+          - MultiAz
+          - DeletionProtection
+      - Label:
+          default: S3
+        Parameters:
+          - DataBucketName
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  TemplateBucket:
+    Type: String
+
+  TemplateVersion:
+    Type: String
+    Default: v1
+
+  DbIdentifier:
+    Type: String
+    Default: app-db
+
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+
+  EngineVersion:
+    Type: String
+    Default: '16.14'
+
+  MultiAz:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  DeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  DataBucketName:
+    Type: String
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  IsMultiAz: !Equals [!Ref MultiAz, 'true']
+  ProtectDeletion: !Equals [!Ref DeletionProtection, 'true']
+
+Resources:
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${Project}-${Environment}-${DbIdentifier}-master-password'
+      Description: !Sub 'Master password for ${Project}-${Environment}-${DbIdentifier}'
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "dbadmin"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${DbIdentifier}-master-password'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DependsOn: DbSecret
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub '${Project}-${Environment}-${DbIdentifier}'
+      Engine: postgres
+      EngineVersion: !Ref EngineVersion
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: 20
+      StorageType: gp2
+      DBName: appdb
+      MasterUsername: dbadmin
+      MasterUserPassword: !Sub
+        - '{{resolve:secretsmanager:${SecretArn}:SecretString:password}}'
+        - SecretArn: !Ref DbSecret
+      DBSubnetGroupName: !ImportValue
+        Fn::Sub: '${Project}-${Environment}-DatabaseSubnetGroupName'
+      VPCSecurityGroups:
+        - !ImportValue
+          Fn::Sub: '${Project}-${Environment}-DbSgId'
+      StorageEncrypted: true
+      MultiAZ: !If [IsMultiAz, true, false]
+      DeletionProtection: !If [ProtectDeletion, true, false]
+      BackupRetentionPeriod: 7
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${DbIdentifier}'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+
+  S3Stack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/s3-bucket/template.yaml'
+      Parameters:
+        BucketName: !Ref DataBucketName
+        ForceDestroy: 'true'
+        EnableVersioning: 'true'
+        BlockPublicAccess: 'true'
+        EnableDenyInsecureTransport: 'true'
+        EnableLifecycleTransition: 'true'
+        TransitionToIADays: '90'
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+Outputs:
+  DbEndpointAddress:
+    Value: !GetAtt DbInstance.Endpoint.Address
+    Export:
+      Name: !Sub '${Project}-${Environment}-DbEndpoint'
+
+  DbEndpointPort:
+    Value: !GetAtt DbInstance.Endpoint.Port
+
+  MasterUserSecretArn:
+    Value: !Ref DbSecret
+    Export:
+      Name: !Sub '${Project}-${Environment}-DbSecretArn'
+
+  DataBucketName:
+    Value: !GetAtt S3Stack.Outputs.BucketName
+    Export:
+      Name: !Sub '${Project}-${Environment}-DataBucketName'
+
+  DataBucketArn:
+    Value: !GetAtt S3Stack.Outputs.BucketArn

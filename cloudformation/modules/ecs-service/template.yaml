@@ -1,0 +1,215 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ECS Fargate service module. Creates task definition, service, and target group attachment for ALB.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Service
+        Parameters:
+          - ServiceName
+          - ClusterName
+          - ContainerName
+          - ContainerImage
+          - ContainerPort
+          - Cpu
+          - Memory
+          - DesiredCount
+      - Label:
+          default: Network
+        Parameters:
+          - SubnetIds
+          - SecurityGroupIds
+          - TargetGroupArn
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  ServiceName:
+    Type: String
+
+  ClusterName:
+    Type: String
+
+  ContainerName:
+    Type: String
+    Default: app
+
+  ContainerImage:
+    Type: String
+    Description: ECR or Docker Hub image URI
+
+  ContainerPort:
+    Type: Number
+    Default: 8080
+
+  HealthCheckPath:
+    Type: String
+    Default: /health
+    Description: ALB and optional container health check path
+
+  EnableContainerHealthCheck:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Enable ECS container health check (requires curl in image)
+
+  Cpu:
+    Type: String
+    Default: '256'
+    AllowedValues: ['256', '512', '1024', '2048', '4096']
+
+  Memory:
+    Type: String
+    Default: '512'
+    AllowedValues: ['512', '1024', '2048', '4096', '8192', '16384']
+
+  DesiredCount:
+    Type: Number
+    Default: 2
+    MinValue: 0
+
+  SubnetIds:
+    Type: String
+    Description: Comma-separated private subnet IDs (String for nested stack compatibility)
+
+  SecurityGroupIds:
+    Type: String
+    Description: Comma-separated security group IDs
+
+  TargetGroupArn:
+    Type: String
+    Default: ''
+    Description: ALB target group ARN (empty = no load balancer)
+
+  TaskRoleArn:
+    Type: String
+    Default: ''
+    Description: Optional task IAM role ARN
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  HasTargetGroup: !Not [!Equals [!Ref TargetGroupArn, '']]
+  HasTaskRole: !Not [!Equals [!Ref TaskRoleArn, '']]
+  ContainerHealthCheck: !Equals [!Ref EnableContainerHealthCheck, 'true']
+
+Resources:
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ServiceName}-exec-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Name
+          Value: !Sub '${ServiceName}-exec-role'
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Ref ServiceName
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !If [HasTaskRole, !Ref TaskRoleArn, !Ref AWS::NoValue]
+      ContainerDefinitions:
+        - Name: !Ref ContainerName
+          Image: !Ref ContainerImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub '/ecs/${ClusterName}'
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: !Ref ServiceName
+          HealthCheck: !If
+            - ContainerHealthCheck
+            - Command:
+                - CMD-SHELL
+                - !Sub 'curl -f http://localhost:${ContainerPort}${HealthCheckPath} || exit 1'
+              Interval: 30
+              Timeout: 5
+              Retries: 3
+              StartPeriod: 60
+            - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Ref ServiceName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: TaskDefinition
+    Properties:
+      ServiceName: !Ref ServiceName
+      Cluster: !Ref ClusterName
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinition
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Split [',', !Ref SubnetIds]
+          SecurityGroups: !Split [',', !Ref SecurityGroupIds]
+      LoadBalancers: !If
+        - HasTargetGroup
+        - - ContainerName: !Ref ContainerName
+            ContainerPort: !Ref ContainerPort
+            TargetGroupArn: !Ref TargetGroupArn
+        - !Ref AWS::NoValue
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      HealthCheckGracePeriodSeconds: 60
+      Tags:
+        - Key: Name
+          Value: !Ref ServiceName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+
+Outputs:
+  ServiceName:
+    Description: ECS service name
+    Value: !Ref Service
+
+  TaskDefinitionArn:
+    Description: Task definition ARN
+    Value: !Ref TaskDefinition
+
+  TaskExecutionRoleArn:
+    Description: Task execution role ARN
+    Value: !GetAtt TaskExecutionRole.Arn

@@ -1,0 +1,54 @@
+[
+  {
+    "ParameterKey": "TemplateBucket",
+    "ParameterValue": "REPLACE_WITH_TEMPLATES_BUCKET"
+  },
+  {
+    "ParameterKey": "TemplateVersion",
+    "ParameterValue": "v1"
+  },
+  {
+    "ParameterKey": "Name",
+    "ParameterValue": "main"
+  },
+  {
+    "ParameterKey": "VpcCidr",
+    "ParameterValue": "10.0.0.0/16"
+  },
+  {
+    "ParameterKey": "AvailabilityZones",
+    "ParameterValue": "ap-south-1a,ap-south-1b"
+  },
+  {
+    "ParameterKey": "PublicSubnetCidrs",
+    "ParameterValue": "10.0.101.0/24,10.0.102.0/24"
+  },
+  {
+    "ParameterKey": "PrivateSubnetCidrs",
+    "ParameterValue": "10.0.1.0/24,10.0.2.0/24"
+  },
+  {
+    "ParameterKey": "DatabaseSubnetCidrs",
+    "ParameterValue": "10.0.21.0/24,10.0.22.0/24"
+  },
+  {
+    "ParameterKey": "CreateNatGateway",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "SingleNatGateway",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "Project",
+    "ParameterValue": "myapp"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "platform-team"
+  }
+]

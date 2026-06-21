@@ -1,0 +1,50 @@
+[
+  {
+    "ParameterKey": "TemplateBucket",
+    "ParameterValue": "REPLACE_WITH_TEMPLATES_BUCKET"
+  },
+  {
+    "ParameterKey": "TemplateVersion",
+    "ParameterValue": "v1"
+  },
+  {
+    "ParameterKey": "ContainerImage",
+    "ParameterValue": "public.ecr.aws/docker/library/nginx:latest"
+  },
+  {
+    "ParameterKey": "ContainerPort",
+    "ParameterValue": "80"
+  },
+  {
+    "ParameterKey": "HealthCheckPath",
+    "ParameterValue": "/"
+  },
+  {
+    "ParameterKey": "DesiredCount",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "CertificateArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "AlbScheme",
+    "ParameterValue": "internal"
+  },
+  {
+    "ParameterKey": "EnableDeletionProtection",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "Project",
+    "ParameterValue": "myapp"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "platform-team"
+  }
+]

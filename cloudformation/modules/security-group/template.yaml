@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Security Group module. Creates a security group with configurable ingress/egress rules.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Security Group
+        Parameters:
+          - Name
+          - VpcId
+          - Description
+          - CreateDefaultEgress
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  Name:
+    Type: String
+    Description: Security group name prefix
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where the security group is created
+
+  Description:
+    Type: String
+    Default: Managed by CloudFormation
+    MaxLength: 255
+
+  CreateDefaultEgress:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Allow all outbound traffic (0.0.0.0/0)
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  CreateEgress: !Equals [!Ref CreateDefaultEgress, 'true']
+
+Resources:
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Name}-sg'
+      GroupDescription: !Ref Description
+      VpcId: !Ref VpcId
+      SecurityGroupEgress: !If
+        - CreateEgress
+        - - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+            Description: Allow all outbound
+        - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Sub '${Name}-sg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Module
+          Value: security-group
+
+Outputs:
+  SecurityGroupId:
+    Description: Security group ID
+    Value: !Ref SecurityGroup
+
+  SecurityGroupArn:
+    Description: Security group ARN
+    Value: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${SecurityGroup}'
