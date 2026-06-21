@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  ECS cluster module. Creates ECS cluster with Fargate capacity providers and Container Insights.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Cluster
+        Parameters:
+          - ClusterName
+          - EnableContainerInsights
+          - EnableFargateCapacityProviders
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  ClusterName:
+    Type: String
+    Description: ECS cluster name
+
+  EnableContainerInsights:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  EnableFargateCapacityProviders:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  ContainerInsights: !Equals [!Ref EnableContainerInsights, 'true']
+  FargateProviders: !Equals [!Ref EnableFargateCapacityProviders, 'true']
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+      ClusterSettings:
+        - Name: containerInsights
+          Value: !If [ContainerInsights, enabled, disabled]
+      CapacityProviders: !If
+        - FargateProviders
+        - [FARGATE, FARGATE_SPOT]
+        - !Ref AWS::NoValue
+      DefaultCapacityProviderStrategy: !If
+        - FargateProviders
+        - - CapacityProvider: FARGATE
+            Weight: 1
+            Base: 1
+        - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Ref ClusterName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Module
+          Value: ecs-cluster
+
+  ClusterLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ClusterName}'
+      RetentionInDays: 30
+
+Outputs:
+  ClusterName:
+    Description: ECS cluster name
+    Value: !Ref Cluster
+
+  ClusterArn:
+    Description: ECS cluster ARN
+    Value: !GetAtt Cluster.Arn
+
+  LogGroupName:
+    Description: CloudWatch log group for ECS tasks
+    Value: !Ref ClusterLogGroup

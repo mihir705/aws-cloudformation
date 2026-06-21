@@ -1,0 +1,46 @@
+[
+  {
+    "ParameterKey": "TemplateBucket",
+    "ParameterValue": "REPLACE_WITH_TEMPLATES_BUCKET"
+  },
+  {
+    "ParameterKey": "TemplateVersion",
+    "ParameterValue": "v1"
+  },
+  {
+    "ParameterKey": "DbIdentifier",
+    "ParameterValue": "app-db"
+  },
+  {
+    "ParameterKey": "DbInstanceClass",
+    "ParameterValue": "db.t4g.micro"
+  },
+  {
+    "ParameterKey": "MultiAz",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "DeletionProtection",
+    "ParameterValue": "false"
+  },
+  {
+    "ParameterKey": "EngineVersion",
+    "ParameterValue": "16.14"
+  },
+  {
+    "ParameterKey": "DataBucketName",
+    "ParameterValue": "myapp-dev-data-945798892515"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "Project",
+    "ParameterValue": "myapp"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "platform-team"
+  }
+]

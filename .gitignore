@@ -1,0 +1,14 @@
+# Ignore local deploy artifacts and secrets
+*.tmp
+.env
+*.pem
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# cfn-lint cache
+.cfnlint

@@ -1,0 +1,38 @@
+[
+  {
+    "ParameterKey": "TemplateBucket",
+    "ParameterValue": "REPLACE_WITH_TEMPLATES_BUCKET"
+  },
+  {
+    "ParameterKey": "TemplateVersion",
+    "ParameterValue": "v1"
+  },
+  {
+    "ParameterKey": "ContainerImage",
+    "ParameterValue": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/myapp-api:latest"
+  },
+  {
+    "ParameterKey": "DesiredCount",
+    "ParameterValue": "3"
+  },
+  {
+    "ParameterKey": "CertificateArn",
+    "ParameterValue": "arn:aws:acm:us-east-1:ACCOUNT_ID:certificate/REPLACE"
+  },
+  {
+    "ParameterKey": "AlbScheme",
+    "ParameterValue": "internet-facing"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "prod"
+  },
+  {
+    "ParameterKey": "Project",
+    "ParameterValue": "myapp"
+  },
+  {
+    "ParameterKey": "Owner",
+    "ParameterValue": "platform-team"
+  }
+]

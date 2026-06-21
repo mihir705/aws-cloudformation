@@ -1,0 +1,95 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  IAM role module. Creates an IAM role with optional managed and inline policies.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Role
+        Parameters:
+          - Name
+          - AssumeRoleService
+          - ManagedPolicyArns
+          - MaxSessionDuration
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  Name:
+    Type: String
+    Description: IAM role name prefix
+
+  AssumeRoleService:
+    Type: String
+    Default: ecs-tasks.amazonaws.com
+    Description: AWS service principal for trust policy (e.g. lambda.amazonaws.com)
+
+  ManagedPolicyArns:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: Comma-separated managed policy ARNs to attach
+
+  MaxSessionDuration:
+    Type: Number
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  HasManagedPolicies: !Not [!Equals [!Join ['', !Ref ManagedPolicyArns], '']]
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Name}-role'
+      MaxSessionDuration: !Ref MaxSessionDuration
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: !Ref AssumeRoleService
+            Action: sts:AssumeRole
+      ManagedPolicyArns: !If [HasManagedPolicies, !Ref ManagedPolicyArns, !Ref AWS::NoValue]
+      Tags:
+        - Key: Name
+          Value: !Sub '${Name}-role'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Module
+          Value: iam-role
+
+Outputs:
+  RoleName:
+    Description: IAM role name
+    Value: !Ref Role
+
+  RoleArn:
+    Description: IAM role ARN
+    Value: !GetAtt Role.Arn
+
+  RoleId:
+    Description: IAM role unique ID
+    Value: !GetAtt Role.RoleId

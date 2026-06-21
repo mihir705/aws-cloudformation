@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  RDS module. Creates RDS PostgreSQL instance with encryption.
+  MasterUserPassword must be passed from the parent stack (dynamic references
+  are not supported inside nested stack templates).
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Database
+        Parameters:
+          - Identifier
+          - EngineVersion
+          - InstanceClass
+          - AllocatedStorage
+          - DbName
+          - MasterUsername
+          - MasterUserPassword
+      - Label:
+          default: Network & Security
+        Parameters:
+          - DbSubnetGroupName
+          - VpcSecurityGroupIds
+      - Label:
+          default: High Availability
+        Parameters:
+          - MultiAz
+          - DeletionProtection
+          - BackupRetentionPeriod
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  Identifier:
+    Type: String
+    Description: RDS instance identifier
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9-]*$'
+    MinLength: 1
+    MaxLength: 63
+
+  Engine:
+    Type: String
+    Default: postgres
+    AllowedValues: [postgres]
+
+  EngineVersion:
+    Type: String
+    Default: '16.14'
+    Description: Engine version (verify availability in your region)
+
+  InstanceClass:
+    Type: String
+    Default: db.t4g.micro
+
+  AllocatedStorage:
+    Type: Number
+    Default: 20
+    MinValue: 20
+
+  DbName:
+    Type: String
+    Default: appdb
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+
+  DbSubnetGroupName:
+    Type: String
+    Description: Existing DB subnet group name
+
+  VpcSecurityGroupIds:
+    Type: String
+    Description: Comma-separated security group IDs
+
+  MultiAz:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  DeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  BackupRetentionPeriod:
+    Type: Number
+    Default: 7
+    MinValue: 0
+    MaxValue: 35
+
+  MasterUsername:
+    Type: String
+    Default: dbadmin
+
+  MasterUserPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: Master password (resolve from Secrets Manager in parent stack)
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  IsMultiAz: !Equals [!Ref MultiAz, 'true']
+  ProtectDeletion: !Equals [!Ref DeletionProtection, 'true']
+
+Resources:
+  DbInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Ref Identifier
+      Engine: !Ref Engine
+      EngineVersion: !Ref EngineVersion
+      DBInstanceClass: !Ref InstanceClass
+      AllocatedStorage: !Ref AllocatedStorage
+      StorageType: gp2
+      DBName: !Ref DbName
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      DBSubnetGroupName: !Ref DbSubnetGroupName
+      VPCSecurityGroups: !Split [',', !Ref VpcSecurityGroupIds]
+      StorageEncrypted: true
+      MultiAZ: !If [IsMultiAz, true, false]
+      DeletionProtection: !If [ProtectDeletion, true, false]
+      BackupRetentionPeriod: !Ref BackupRetentionPeriod
+      AutoMinorVersionUpgrade: true
+      CopyTagsToSnapshot: true
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Ref Identifier
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Module
+          Value: rds
+
+Outputs:
+  DbInstanceIdentifier:
+    Description: RDS instance identifier
+    Value: !Ref DbInstance
+
+  DbEndpointAddress:
+    Description: Connection endpoint hostname
+    Value: !GetAtt DbInstance.Endpoint.Address
+
+  DbEndpointPort:
+    Description: Connection endpoint port
+    Value: !GetAtt DbInstance.Endpoint.Port

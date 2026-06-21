@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Network stack — orchestrates VPC and baseline security groups.
+  Deploy first; exports VPC and subnet IDs for data and application stacks.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Deployment
+        Parameters:
+          - TemplateBucket
+          - TemplateVersion
+      - Label:
+          default: Network
+        Parameters:
+          - Name
+          - VpcCidr
+          - AvailabilityZones
+          - PublicSubnetCidrs
+          - PrivateSubnetCidrs
+          - DatabaseSubnetCidrs
+          - CreateNatGateway
+          - SingleNatGateway
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  TemplateBucket:
+    Type: String
+    Description: S3 bucket containing nested stack templates
+
+  TemplateVersion:
+    Type: String
+    Default: v1
+    Description: Version prefix in S3 (e.g. v1/modules/vpc/template.yaml)
+
+  Name:
+    Type: String
+    Default: main
+
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  AvailabilityZones:
+    Type: CommaDelimitedList
+
+  PublicSubnetCidrs:
+    Type: CommaDelimitedList
+
+  PrivateSubnetCidrs:
+    Type: CommaDelimitedList
+
+  DatabaseSubnetCidrs:
+    Type: CommaDelimitedList
+    Default: ''
+
+  CreateNatGateway:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  SingleNatGateway:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Resources:
+  VpcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/vpc/template.yaml'
+      Parameters:
+        Name: !Ref Name
+        VpcCidr: !Ref VpcCidr
+        AvailabilityZones: !Join [',', !Ref AvailabilityZones]
+        PublicSubnetCidrs: !Join [',', !Ref PublicSubnetCidrs]
+        PrivateSubnetCidrs: !Join [',', !Ref PrivateSubnetCidrs]
+        DatabaseSubnetCidrs: !Join [',', !Ref DatabaseSubnetCidrs]
+        CreateNatGateway: !Ref CreateNatGateway
+        SingleNatGateway: !Ref SingleNatGateway
+        OneNatGatewayPerAz: 'false'
+        EnableDnsHostnames: 'true'
+        EnableDnsSupport: 'true'
+        EnableFlowLogs: 'true'
+        FlowLogRetentionDays: '30'
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: !Ref Project
+
+  AlbSecurityGroupStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VpcStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/security-group/template.yaml'
+      Parameters:
+        Name: !Sub '${Name}-alb'
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        Description: Security group for Application Load Balancer
+        CreateDefaultEgress: 'true'
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+  AppSecurityGroupStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VpcStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/security-group/template.yaml'
+      Parameters:
+        Name: !Sub '${Name}-app'
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        Description: Security group for application tier (ECS/Lambda)
+        CreateDefaultEgress: 'true'
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+  DbSecurityGroupStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VpcStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/security-group/template.yaml'
+      Parameters:
+        Name: !Sub '${Name}-db'
+        VpcId: !GetAtt VpcStack.Outputs.VpcId
+        Description: Security group for RDS database
+        CreateDefaultEgress: 'false'
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+  # Allow ALB -> App on container port
+  AlbToAppIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: AppSecurityGroupStack
+    Properties:
+      GroupId: !GetAtt AppSecurityGroupStack.Outputs.SecurityGroupId
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !GetAtt AlbSecurityGroupStack.Outputs.SecurityGroupId
+      Description: Allow HTTP from ALB to application tier
+
+  # Allow App -> DB on PostgreSQL port
+  AppToDbIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    DependsOn: DbSecurityGroupStack
+    Properties:
+      GroupId: !GetAtt DbSecurityGroupStack.Outputs.SecurityGroupId
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !GetAtt AppSecurityGroupStack.Outputs.SecurityGroupId
+      Description: Allow PostgreSQL from application tier
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !GetAtt VpcStack.Outputs.VpcId
+    Export:
+      Name: !Sub '${Project}-${Environment}-VpcId'
+
+  PublicSubnetIds:
+    Value: !GetAtt VpcStack.Outputs.PublicSubnetIds
+    Export:
+      Name: !Sub '${Project}-${Environment}-PublicSubnetIds'
+
+  PrivateSubnetIds:
+    Value: !GetAtt VpcStack.Outputs.PrivateSubnetIds
+    Export:
+      Name: !Sub '${Project}-${Environment}-PrivateSubnetIds'
+
+  DatabaseSubnetGroupName:
+    Value: !GetAtt VpcStack.Outputs.DatabaseSubnetGroupName
+    Export:
+      Name: !Sub '${Project}-${Environment}-DatabaseSubnetGroupName'
+
+  AlbSecurityGroupId:
+    Value: !GetAtt AlbSecurityGroupStack.Outputs.SecurityGroupId
+    Export:
+      Name: !Sub '${Project}-${Environment}-AlbSgId'
+
+  AppSecurityGroupId:
+    Value: !GetAtt AppSecurityGroupStack.Outputs.SecurityGroupId
+    Export:
+      Name: !Sub '${Project}-${Environment}-AppSgId'
+
+  DbSecurityGroupId:
+    Value: !GetAtt DbSecurityGroupStack.Outputs.SecurityGroupId
+    Export:
+      Name: !Sub '${Project}-${Environment}-DbSgId'

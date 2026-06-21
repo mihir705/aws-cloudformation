@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Application stack — orchestrates ALB, ECS cluster, and ECS service.
+  Requires network stack exports.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Deployment
+        Parameters:
+          - TemplateBucket
+          - TemplateVersion
+      - Label:
+          default: Application
+        Parameters:
+          - ContainerImage
+          - ContainerPort
+          - HealthCheckPath
+          - DesiredCount
+          - CertificateArn
+          - AlbScheme
+      - Label:
+          default: Tags
+        Parameters:
+          - Environment
+          - Project
+          - Owner
+
+Parameters:
+  TemplateBucket:
+    Type: String
+
+  TemplateVersion:
+    Type: String
+    Default: v1
+
+  ContainerImage:
+    Type: String
+    Description: Container image URI (ECR recommended)
+
+  ContainerPort:
+    Type: Number
+    Default: 8080
+    Description: Container port (use 80 for nginx)
+
+  HealthCheckPath:
+    Type: String
+    Default: /health
+    Description: ALB health check path (use / for nginx)
+
+  DesiredCount:
+    Type: Number
+    Default: 2
+
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM certificate for HTTPS (optional)
+
+  AlbScheme:
+    Type: String
+    Default: internal
+    AllowedValues: [internal, internet-facing]
+
+  EnableDeletionProtection:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Enable ALB deletion protection (use true in prod)
+
+  Environment:
+    Type: String
+
+  Project:
+    Type: String
+
+  Owner:
+    Type: String
+    Default: platform-team
+
+Conditions:
+  IsInternetFacing: !Equals [!Ref AlbScheme, internet-facing]
+
+Resources:
+  # Network stack opens 8080 by default; nginx uses port 80
+  AlbToAppIngressHttp:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !ImportValue
+        Fn::Sub: '${Project}-${Environment}-AppSgId'
+      IpProtocol: tcp
+      FromPort: !Ref ContainerPort
+      ToPort: !Ref ContainerPort
+      SourceSecurityGroupId: !ImportValue
+        Fn::Sub: '${Project}-${Environment}-AlbSgId'
+      Description: !Sub 'Allow ALB to app on port ${ContainerPort}'
+
+  AlbStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/alb/template.yaml'
+      Parameters:
+        Name: !Sub '${Project}-${Environment}'
+        Scheme: !Ref AlbScheme
+        SubnetIds: !If
+          - IsInternetFacing
+          - !ImportValue
+              Fn::Sub: '${Project}-${Environment}-PublicSubnetIds'
+          - !ImportValue
+              Fn::Sub: '${Project}-${Environment}-PrivateSubnetIds'
+        SecurityGroupIds: !ImportValue
+          Fn::Sub: '${Project}-${Environment}-AlbSgId'
+        VpcId: !ImportValue
+          Fn::Sub: '${Project}-${Environment}-VpcId'
+        TargetPort: !Ref ContainerPort
+        HealthCheckPath: !Ref HealthCheckPath
+        CertificateArn: !Ref CertificateArn
+        EnableHttpsRedirect: 'true'
+        EnableDeletionProtection: !Ref EnableDeletionProtection
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+  EcsClusterStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/ecs-cluster/template.yaml'
+      Parameters:
+        ClusterName: !Sub '${Project}-${Environment}'
+        EnableContainerInsights: 'true'
+        EnableFargateCapacityProviders: 'true'
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+  EcsServiceStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - AlbStack
+      - EcsClusterStack
+    Properties:
+      TemplateURL: !Sub 'https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/${TemplateVersion}/modules/ecs-service/template.yaml'
+      Parameters:
+        ServiceName: !Sub '${Project}-${Environment}-api'
+        ClusterName: !GetAtt EcsClusterStack.Outputs.ClusterName
+        ContainerName: api
+        ContainerImage: !Ref ContainerImage
+        ContainerPort: !Ref ContainerPort
+        HealthCheckPath: !Ref HealthCheckPath
+        EnableContainerHealthCheck: 'false'
+        Cpu: '512'
+        Memory: '1024'
+        DesiredCount: !Ref DesiredCount
+        SubnetIds: !ImportValue
+          Fn::Sub: '${Project}-${Environment}-PrivateSubnetIds'
+        SecurityGroupIds: !ImportValue
+          Fn::Sub: '${Project}-${Environment}-AppSgId'
+        TargetGroupArn: !GetAtt AlbStack.Outputs.TargetGroupArn
+        Environment: !Ref Environment
+        Project: !Ref Project
+        Owner: !Ref Owner
+
+Outputs:
+  AlbDnsName:
+    Description: Application load balancer DNS name
+    Value: !GetAtt AlbStack.Outputs.LoadBalancerDnsName
+    Export:
+      Name: !Sub '${Project}-${Environment}-AlbDns'
+
+  EcsClusterName:
+    Value: !GetAtt EcsClusterStack.Outputs.ClusterName
+
+  EcsServiceName:
+    Value: !GetAtt EcsServiceStack.Outputs.ServiceName
+
+  TargetGroupArn:
+    Value: !GetAtt AlbStack.Outputs.TargetGroupArn
